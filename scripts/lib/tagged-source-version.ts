@@ -8,6 +8,9 @@ export const releasePackageFiles = [
   "packages/contracts/package.json",
 ] as const;
 
+// Marks builds of this fork, so they never share a runtime directory or a release with upstream's.
+const FORK_VERSION_SUFFIX = "-zdr3";
+
 /**
  * A release is tagged on the commit it was built from, and the manifest bump lands on main
  * afterwards, so source at `vX.Y.Z` still carries the previous version. Server, web and desktop
@@ -23,9 +26,9 @@ export function resolveTaggedSourceVersion(repoRoot: string, manifestVersion: st
     const stableTags = git("tag", "--points-at", "HEAD")
       .split("\n")
       .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
-    if (stableTags.length === 1) return stableTags[0]!.slice(1);
+    if (stableTags.length === 1) return `${stableTags[0]!.slice(1)}${FORK_VERSION_SUFFIX}`;
   } catch {
     // No Git, a source archive, or edited manifests: the manifest is the version.
   }
-  return manifestVersion;
+  return `${manifestVersion}${FORK_VERSION_SUFFIX}`;
 }

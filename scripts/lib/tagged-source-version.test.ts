@@ -35,25 +35,25 @@ it("reports the single stable tag on HEAD unless a release manifest was edited",
   const resolve = () => resolveTaggedSourceVersion(repo.root, "0.1.5");
 
   repo.git("tag", "v0.1.6-nightly.20261031.3977");
-  expect(resolve()).toBe("0.1.5");
+  expect(resolve()).toBe("0.1.5-zdr3");
 
   repo.git("tag", "--no-sign", "-a", "v0.1.6", "-m", "release");
-  expect(resolve()).toBe("0.1.6");
+  expect(resolve()).toBe("0.1.6-zdr3");
 
   // A nightly or preview job on the tagged commit aligns the manifests to its own version.
   repo.writeManifest("apps/web/package.json", "0.1.7-preview.1");
-  expect(resolveTaggedSourceVersion(repo.root, "0.1.7-preview.1")).toBe("0.1.7-preview.1");
+  expect(resolveTaggedSourceVersion(repo.root, "0.1.7-preview.1")).toBe("0.1.7-preview.1-zdr3");
   repo.writeManifest("apps/web/package.json", "0.1.5");
-  expect(resolve()).toBe("0.1.6");
+  expect(resolve()).toBe("0.1.6-zdr3");
 
   repo.git("tag", "v0.1.7");
-  expect(resolve()).toBe("0.1.5");
+  expect(resolve()).toBe("0.1.5-zdr3");
 
   repo.git("commit", "--quiet", "--no-gpg-sign", "--allow-empty", "-m", "after release");
-  expect(resolve()).toBe("0.1.5");
+  expect(resolve()).toBe("0.1.5-zdr3");
 });
 
 it("keeps the manifest version in a source archive without Git metadata", () => {
   using repo = makeRoot();
-  expect(resolveTaggedSourceVersion(repo.root, "0.1.5")).toBe("0.1.5");
+  expect(resolveTaggedSourceVersion(repo.root, "0.1.5")).toBe("0.1.5-zdr3");
 });
