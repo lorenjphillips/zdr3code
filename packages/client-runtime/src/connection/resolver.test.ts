@@ -157,12 +157,6 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
         bearerToken: Effect.succeed(Option.fromNullishOr(options?.primaryBearerToken)),
       }),
     ),
-    Layer.succeed(
-      ClientCapabilities.ClientPresentation,
-      ClientCapabilities.ClientPresentation.of({
-        metadata: { label: "Test Client", deviceType: "desktop", surface: "web" },
-      }),
-    ),
     Layer.succeed(RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization, remote),
     Layer.succeed(ClientCapabilities.SshEnvironmentGateway, ssh),
   );
@@ -205,7 +199,7 @@ describe("ConnectionResolver", () => {
         label: "Primary",
         httpBaseUrl: "http://127.0.0.1:3777",
         socketUrl:
-          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&clientCapabilities=settingsSecretReferences",
+          "ws://127.0.0.1:3777/ws?orchestrationProtocol=2&clientCapabilities=settingsSecretReferences",
         httpAuthorization: null,
         target,
         // The shell reads the server's build and shell flags here before the socket opens.

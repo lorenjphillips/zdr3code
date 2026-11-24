@@ -88,7 +88,6 @@ it.layer(NodeServices.layer)("ManagedPolicy.load", (it) => {
       });
       assert.equal(ManagedPolicy.deniedBy(policy, "webhookTasks"), "Example Corp");
       assert.equal(ManagedPolicy.deniedBy(policy, "previewTunnel"), "Example Corp");
-      assert.isUndefined(ManagedPolicy.deniedBy(policy, "telemetry"));
     }),
   );
 

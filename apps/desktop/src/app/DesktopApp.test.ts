@@ -123,7 +123,6 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           installIntoProcess: Effect.succeed(true),
           awaitDiscovery: Effect.succeed(true),
           awaitUserShellDiscovery: Effect.succeed(true),
-          discoveryFinished: Effect.succeed(true),
           updates: Stream.empty,
         }),
         Effect.provideService(DesktopAppSettings.DesktopAppSettings, {
