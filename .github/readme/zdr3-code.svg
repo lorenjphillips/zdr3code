@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <title>ZDR3 Code</title>
+  <circle cx="128" cy="128" r="124" fill="#0B1210"/>
+  <rect x="82" y="50" width="92" height="156" rx="46" stroke="#34D399" stroke-width="20"/>
+  <path d="M98 190 158 66" stroke="#34D399" stroke-width="16" stroke-linecap="round"/>
+</svg>

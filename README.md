@@ -1,121 +1,410 @@
 <p align="center">
-  <a href="https://t3.codes">
-    <img src="./assets/prod/t3-black-web-icon-192x192.png" width="80" height="80" alt="T3 Code logo" />
-  </a>
+  <img src="./.github/readme/zdr3-code.svg" width="88" height="88" alt="ZDR3 Code logo" />
 </p>
 
-<h1 align="center">T3 Code</h1>
+<h1 align="center">ZDR3 Code</h1>
 
-<p align="center">The open-source control plane for coding agents.</p>
+<p align="center">T3 Code with the telemetry deleted.</p>
 
 <p align="center">
-  <a href="https://t3.codes/download"><strong>Download</strong></a> ·
-  <a href="https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824">iOS</a> ·
-  <a href="https://play.google.com/store/apps/details?id=com.t3tools.t3code">Android</a> ·
-  <a href="https://app.t3.codes">Web</a> ·
-  <a href="./docs/README.md">Docs</a> ·
-  <a href="https://discord.gg/jn4EGJjrvv">Discord</a>
+  <sub>An unofficial fork based on the <a href="https://github.com/pingdotgg/t3code">T3 Code</a> source code.<br />Not affiliated with, endorsed by, or maintained by T3 Tools, Inc.</sub>
 </p>
 
-<p align="center">
-  <a href="https://t3.codes">
-    <img src="./.github/readme/hero.webp" width="100%" alt="T3 Code on desktop with a finished Claude thread, next to the phone app asking to approve a command from Codex" />
-  </a>
-</p>
+ZDR stands for zero data retention. This build keeps your threads, settings and identifiers on your machine and sends none of them to the app's maker. The telemetry code is deleted, not switched off, so there is no setting, environment variable or build flag that brings it back.
 
-T3 Code runs the coding agents on your machine and gives them one fast interface. Start a thread at your desk, then approve the next step from your phone.
+Based on upstream [`11c63a9`][base] (2026-11-24). Everything this fork changes is in [one diff][compare]: outside this README, about 10,200 lines removed and 480 added.
 
-It works with Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity, Kiro, Pi, Muse Code, fx, and any [ACP](./docs/user/providers-acp.md) agent. If an agent is set up on your computer, T3 Code can control it.
+## What T3 Code sends
 
-## What you get
+The three that matter most, with the upstream source for each.
 
-- **Your subscriptions.** T3 Code does not resell tokens. It drives the agents you are already signed in to.
-- **Every agent in one place.** Change models in the middle of a thread. Let Claude hand a task to Codex.
-- **Desktop, web, and phone.** One server, and every client shows the same threads. There are apps for iOS and Android.
-- **Remote ready.** Run agents on any machine. Connect over your local network, Tailscale, or [T3 Connect](./docs/user/remote-access.md).
-- **Git built in.** Each thread can work in its own worktree. Review the diff, then commit, push, and open a pull request with one button.
-- **Fast.** Performance is a feature here. We measure it, and we treat a dropped frame as a bug.
-- **Open.** Source code is MIT licensed. If you don't like something, fork it under your own branding (see [Trademarks and forks](#trademarks-and-forks)).
+| #   | What                                          | Where it goes                   | On by default   |
+| --- | --------------------------------------------- | ------------------------------- | --------------- |
+| 1   | Usage events for every boot, turn and feature | `ingest.t3.codes`, then PostHog | Yes             |
+| 2   | Hashes of your OpenAI and Claude account IDs  | Sent with those events          | Yes             |
+| 3   | Connection traces and mobile crash reports    | Axiom                           | Official builds |
 
-## Install
+**1. Usage events.** The server posts a batch to `https://ingest.t3.codes/batch/` every 10 seconds ([`AnalyticsService.ts` L67-L74][analytics-config], [L231-L236][analytics-post]). It sends a heartbeat on every start with your thread and project counts, then one event per turn with the provider, the model ID (custom model names included), token counts and duration ([`ProviderUsageAnalytics.ts` L174-L205][turn-props]), plus the features you use, MCP tool calls and sign-in flows.
+
+**2. Account hashes.** The server reads `~/.codex/auth.json` and `~/.claude.json` ([`Identify.ts` L253-L271][identify-read]) and attaches SHA-256 hashes of your Codex account ID, OpenAI user ID and Claude account UUID to those events ([L279-L295][identify-distinct], [L307-L339][identify-owners]). The hash has no salt ([`telemetryId.ts` L8-L9][hash]), so anyone who holds the raw ID can match it. The files are read at startup whether or not telemetry is enabled ([`AnalyticsService.ts` L149][identify-always]).
+
+**3. Traces and crash reports.** Official builds export "relay client" traces to Axiom from the server, the desktop and web UI, and the phone app ([`relayTracing.ts` L159-L177][relay-exporter]; the endpoint and token are injected at release, [`release.yml` L445-L463][relay-release]). The browser and phone senders have no off switch ([`telemetry.md` L82-L84][doc-browser], [L96-L98][doc-mobile]). The phone app also sends crash reports and startup timings with an install ID unless you turn them off ([`observe.ts`][observe]).
+
+### Measured
+
+Both servers were started on a fresh home directory with test credential files in place, left alone for 30 seconds, and every outbound connection was logged and blocked.
+
+| Build              | Connection attempts                                              |
+| ------------------ | ---------------------------------------------------------------- |
+| Upstream `11c63a9` | 3 to `ingest.t3.codes:443`, 1 to `raw.githubusercontent.com:443` |
+| ZDR3 Code          | 1 to `raw.githubusercontent.com:443`                             |
+
+The upstream build's first batch held `server.boot.heartbeat` and two `install.owner_observed` events. Their `ownerId` values were exactly the SHA-256 of the OpenAI user ID and the Claude account UUID in the test files, and `distinct_id` was the SHA-256 of the Codex account ID. The one request ZDR3 Code makes is a plain download of the public model list ([what is left](#what-is-left)).
+
+## What this fork removes
+
+Each line is one removal and what it prevents. Open a row for the exact code.
+
+| Removed                                                     | So that                                                                                   |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| The analytics client and every event call site              | Nothing is sent to `ingest.t3.codes` or PostHog                                           |
+| The identity reader                                         | `~/.codex/auth.json` and `~/.claude.json` are not read to fingerprint you; no install ID  |
+| Client identity on the connection URL                       | The app no longer sends account and device hashes, browser, OS or phone model to a server |
+| The relay trace exporter, its wrappers and its build config | No traces go to Axiom from the server, desktop, web or phone                              |
+| `expo-observe` and the phone trace exporter                 | The phone app sends no crash reports, startup timings or traces                           |
+| Over-the-air updates from upstream's Expo project           | A phone build of this source is not replaced by an upstream bundle                        |
+| The agent feedback sender and the `t3 feedback` command     | An agent cannot send a report to the T3 team                                              |
+| The Google favicon lookup                                   | Hostnames of links in your threads are not sent to `google.com`                           |
+| `T3CODE_TELEMETRY_ENABLED` and its plumbing                 | There is nothing left to opt out of                                                       |
+
+One thing is added rather than removed. Builds report a `-zdr3` version, and release lookups point at this repository, so an update or a background-service install cannot quietly fetch an upstream build.
+
+<details>
+<summary><b>Analytics client</b>: <code>apps/server/src/telemetry/</code> deleted (11 files)</summary>
+
+```diff
+- const TelemetryEnvConfig = Config.all({
+-   posthogKey: Config.String("T3CODE_POSTHOG_KEY").pipe(
+-     Config.withDefault("phc_XOWci4oZP4VvLiEyrFqkFjP4CZn55mjYYBMREK5Wd6m"),
+-   ),
+-   posthogHost: Config.String("T3CODE_POSTHOG_HOST").pipe(
+-     Config.withDefault("https://ingest.t3.codes"),
+-   ),
+-   enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
+```
+
+```diff
+-     yield* HttpClientRequest.post(`${telemetryConfig.posthogHost}/batch/`).pipe(
+-       HttpClientRequest.bodyJson(payload),
+-       Effect.flatMap(httpClient.execute),
+```
+
+The heartbeat in `apps/server/src/serverRuntimeStartup.ts`:
+
+```diff
+-   yield* analytics.record("server.boot.heartbeat", {
+-     threadCount,
+-     projectCount,
+-   });
+-   yield* analytics.recordOwners(yield* getServerOwners, "server");
+```
+
+Call sites removed with it: `ws.ts`, `server.ts`, `mcp/McpHttpServer.ts`, `guest/GuestShareService.ts`, `provider/CodexChatGptAuth.ts`, and `orchestration-v2/{RunExecutionService,ProviderEventIngestor,ProviderTurnStartService}.ts`.
+
+</details>
+
+<details>
+<summary><b>Identity reader</b>: <code>apps/server/src/telemetry/Identify.ts</code> deleted</summary>
+
+```diff
+-   const codexTokens = yield* readJsonIdentityFile(
+-     "codex",
+-     path.join(homeDirectory, ".codex", "auth.json"),
+-     decodeCodexAuthJson,
+-   ).pipe(
+-     skipOnError,
+-     Effect.map(Option.flatMap((authJson) => Option.fromUndefinedOr(authJson.tokens))),
+-   );
+-   const claudeJson = yield* readJsonIdentityFile(
+-     "claude",
+-     path.join(homeDirectory, ".claude.json"),
+-     decodeClaudeJson,
+-   ).pipe(skipOnError);
+```
+
+```diff
+-   return {
+-     distinctId: Option.isSome(providerId) ? hashTelemetryId(providerId.value) : installId,
+-     installId,
+-   };
+```
+
+`packages/shared/src/telemetryId.ts`, deleted:
+
+```diff
+- export const hashTelemetryId = (value: string): string =>
+-   Hex.encode(sha256(new TextEncoder().encode(value)));
+```
+
+`apps/server/src/config.ts`:
+
+```diff
+-     anonymousIdPath: join(stateDir, "anonymous-id"),
+```
+
+</details>
+
+<details>
+<summary><b>Client identity</b>: <code>packages/client-runtime/src/authorization/remote.ts</code></summary>
+
+```diff
+- export const readClientOwnerParams = Effect.gen(function* () {
+-   const session = yield* Effect.serviceOption(ClientCapabilities.CloudSession);
+-   const account = Option.isSome(session) ? yield* session.value.identity : Option.none();
+-   const device = yield* (yield* ClientCapabilities.AnalyticsDevice).id;
+-   return {
+-     ...(Option.isSome(account) ? { connect: hashTelemetryId(account.value.accountId) } : {}),
+-     ...(Option.isSome(device) ? { device: hashTelemetryId(device.value) } : {}),
+-   } satisfies ClientOwnerParams;
+- });
+```
+
+```diff
+-   if (clientMetadata?.surface === "mobile") {
+-     if (clientMetadata.osMajorVersion !== undefined) {
+-       url.searchParams.set("clientOsMajorVersion", String(clientMetadata.osMajorVersion));
+-     }
+-     if (clientMetadata.deviceModel) {
+-       url.searchParams.set("clientDeviceModel", clientMetadata.deviceModel);
+-     }
+-   }
+-   if (connectionMethod) {
+-     url.searchParams.set("connectionMethod", connectionMethod);
+-   }
+-   if (owners?.connect) {
+-     url.searchParams.set("clientOwner", owners.connect);
+-   }
+-   if (owners?.device) {
+-     url.searchParams.set("clientDevice", owners.device);
+-   }
+```
+
+`apps/web/src/connection/platform.ts`:
+
+```diff
+- const ANALYTICS_DEVICE_ID_KEY = "t3code:analytics-device-id";
+```
+
+The readers in `apps/server/src/ws.ts` (`readClientAnalyticsProps`, `readClientOwners`) are deleted too.
+
+</details>
+
+<details>
+<summary><b>Relay traces</b>: <code>packages/shared/src/relayTracing.ts</code> deleted</summary>
+
+```diff
+-   const layerTracer = OtlpTracer.layer({
+-     url: config.tracesUrl,
+-     headers: {
+-       Authorization: `Bearer ${config.tracesToken}`,
+-       "X-Axiom-Dataset": config.tracesDataset,
+-     },
+```
+
+Removed with it: every `withRelayClientTracing` wrapper across the server and client runtime, `apps/server/src/cloud/relayTracing.ts`, `traceRelayRequest.ts`, the `T3CODE_RELAY_CLIENT_OTLP_TRACES_*` build defines, `isRelayTracingEnabled`, and the desktop `getRelayTelemetryEnabled` bridge call.
+
+</details>
+
+<details>
+<summary><b>Phone app</b>: <code>apps/mobile</code></summary>
+
+`package.json`:
+
+```diff
+-     "expo-observe": "~58.0.18",
+```
+
+`app.config.ts`:
+
+```diff
+- const observeEndpointUrl = repoEnv.T3CODE_RELAY_URL?.trim()
+-   ? new URL("/v1/mobile/observe", repoEnv.T3CODE_RELAY_URL.trim()).toString()
+-   : "https://observe.invalid";
+```
+
+```diff
+-     observability: {
+-       tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? "https://api.axiom.co/v1/traces",
+-       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
+-       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
+-     },
+```
+
+```diff
+    updates: {
+-     enabled: repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
+-     url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+-     checkAutomatically: "ON_LOAD",
+-     fallbackToCacheTimeout: 0,
++     enabled: false,
+    },
+```
+
+`src/features/observability/observe.ts` and `tracing.ts` are deleted, along with the "Send crash reports" setting.
+
+</details>
+
+<details>
+<summary><b>Agent feedback</b>: <code>apps/server/src/feedback/FeedbackStore.ts</code></summary>
+
+```diff
+-     const sent = yield* analytics.record("agent.feedback", {
+-       kind,
+-       subject,
+-       expected,
+-       actual,
+-       workaround,
+-       trace,
+-       userRequested,
+-       source,
+-       ...dimensions,
+-     });
+```
+
+Deleted with it: the `t3_feedback` tool agents used to file reports, the code that built a report and attached the conversation to it, and the `t3 feedback` command. The server no longer offers the feature, so its switch in Settings is hidden. A feedback card already in a thread can still be closed; choosing Send closes it without sending anything.
+
+</details>
+
+<details>
+<summary><b>Favicons</b>: <code>packages/shared/src/favicon.ts</code></summary>
+
+```diff
+-     return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=${size}`;
+```
+
+Links and preview tabs fall back to the icons the app already has.
+
+</details>
+
+<details>
+<summary><b>Version and release source</b>: the two additions</summary>
+
+`scripts/lib/tagged-source-version.ts`:
+
+```diff
++ const FORK_VERSION_SUFFIX = "-zdr3";
+```
+
+```diff
+-     if (stableTags.length === 1) return stableTags[0]!.slice(1);
++     if (stableTags.length === 1) return `${stableTags[0]!.slice(1)}${FORK_VERSION_SUFFIX}`;
+    } catch {
+      // No Git, a source archive, or edited manifests: the manifest is the version.
+    }
+-   return manifestVersion;
++   return `${manifestVersion}${FORK_VERSION_SUFFIX}`;
+```
+
+`packages/shared/src/cliRelease.ts`:
+
+```diff
+- const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
++ const CLI_RELEASE_REPOSITORY = "lorenjphillips/zdr3code";
+```
+
+</details>
+
+## Switch from T3 Code
+
+Your threads, projects and settings live in `~/.t3`. ZDR3 Code reads the same directory, so nothing is migrated or copied.
+
+You need git and Node 26.13.1. These steps were run on macOS on Apple Silicon.
+
+**1. Build**
+
+```sh
+git clone https://github.com/lorenjphillips/zdr3code.git
+cd zdr3code
+corepack pnpm install
+corepack pnpm exec vp run --filter t3 build
+```
+
+**2. Stop T3 Code**
+
+Quit the desktop app. If you use the background service, remove it; this keeps your data.
+
+```sh
+t3 service uninstall
+```
+
+Only one server can use `~/.t3` at a time, so do this before the next step.
+
+**3. Start ZDR3 Code**
+
+```sh
+node apps/server/dist/bin.mjs
+```
+
+It takes the same subcommands and flags as `t3`, for example `node apps/server/dist/bin.mjs serve --port 3773`. To keep typing `t3`:
+
+```sh
+alias t3="node $PWD/apps/server/dist/bin.mjs"
+```
+
+**4. Check what is running**
+
+```sh
+node apps/server/dist/bin.mjs --version
+# t3 v0.1.11-zdr3
+```
+
+The app this server opens shows the same `-zdr3` version in Settings > About. If the suffix is missing, you are running an upstream build.
 
 ### Desktop app
 
-[Download T3 Code](https://t3.codes/download) for macOS, Windows, or Linux. You can also use a package manager:
+On a Mac with Xcode's command line tools and Rust installed, build the app from the same checkout:
 
-| Platform       | Command                                                              |
-| -------------- | -------------------------------------------------------------------- |
-| macOS          | `brew install --cask t3-code`                                        |
-| Windows        | `winget install T3Tools.T3Code` or `scoop install extras/t3code`     |
-| Arch Linux     | `yay -S t3code-bin`                                                  |
-| Nix            | `nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code`         |
-| Debian, Ubuntu | `.deb` from [Releases](https://github.com/pingdotgg/t3code/releases) |
-
-### Command line
-
-This installs the `t3` command. Run `t3` to start the server and open the web app.
-
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
+```sh
+corepack pnpm exec vp run dist:desktop:dmg
 ```
 
-On Windows, in PowerShell:
+It writes a `.dmg` such as `release/T3-Code-0.1.11-zdr3-arm64.dmg`. Quit T3 Code, open the `.dmg` and drag the app over the one in Applications. It has the same name (`T3 Code (Beta)`) and app ID as the official app, so it uses your existing desktop settings and `~/.t3`. Because your build is signed differently, macOS may ask once whether the app can use its keychain item; allow it.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
+A local build has no update feed, so the app never checks for or installs updates. To update, run `git pull` and `corepack pnpm install`, then the same command again.
+
+This build was made and inspected on an Apple Silicon Mac (name, app ID, version, no update feed, no telemetry endpoints in the bundle), but the packaged app was not launched.
+
+### Update
+
+```sh
+git pull
+corepack pnpm install
+corepack pnpm exec vp run --filter t3 build
 ```
 
-To try it once without an install, run `npx t3@latest`.
+Then restart the server. The in-app update button and `t3 update` look for releases of this fork, and there are none, so they have nothing to install. Do not give `t3 update` an upstream version number: if that upstream build is already on disk, it switches you back to it.
 
-### Phone
+### Not ready to switch
 
-Get the app from the [App Store](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) or [Google Play](https://play.google.com/store/apps/details?id=com.t3tools.t3code). Then follow [remote access](./docs/user/remote-access.md) to connect it to your computer.
+On an official build, `T3CODE_TELEMETRY_ENABLED=false` in the server's environment stops the usage events and the server's relay traces. It does not stop the credential files being read, and it does not reach the browser or phone senders.
 
-### Sign in to an agent
+## What is left
 
-T3 Code needs one agent that is installed and signed in. For example, install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`, or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`.
+None of this is telemetry, but it is network traffic you should know about.
 
-[Provider setup](./docs/user/install.md#providers) has the steps for each agent. [Install T3 Code](./docs/user/install.md) covers nightly builds, AppImage, WSL, and NixOS.
+- **Model list and update checks.** The server downloads the public model list from GitHub and checks npm and vendor sites for new agent CLI versions. These are plain downloads with no identifier. Turn them off with **Provider update checks** in Settings > Maintenance.
+- **Your own OpenTelemetry receiver.** Export stays off until you enter an endpoint in Settings > Maintenance > Diagnostics or set `T3CODE_OTLP_*` or `OTEL_EXPORTER_OTLP_*`. If those `OTEL_` variables are already set on your machine for other tools, they count. Trace files under `~/.t3/userdata/logs` stay local.
+- **T3 Connect.** The cloud relay is not built in unless you add upstream's `.env` values. If you do, you are using upstream's relay service.
+- **Official phone apps and `app.t3.codes`.** These are upstream builds. They can connect to a ZDR3 Code server, and they still send what upstream sends from the phone or browser.
+- **The agents.** Claude Code, Codex and the others have their own telemetry. Configure it in each tool.
+- **Managed policy.** A policy file with `telemetry: false` still parses. The key now does nothing.
 
-## "Wait, what are you selling me?"
+## Verify it yourself
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+```sh
+# The full change set
+git diff 11c63a9f2c --stat
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork the source code and build the tool that you want, under your own name and branding.
-
-## Documentation
-
-- [Install and first run](./docs/user/install.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Source control](./docs/user/source-control.md)
-- [Connect outside agents over MCP](./docs/user/outside-agents.md)
-- [FAQ](./docs/user/faq.md)
-
-[All docs](./docs/README.md) has the full list.
-
-## Contributing
-
-We have limited review capacity. Small, focused fixes are the most likely to be merged. Features need an approved discussion first.
-
-- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before you report a bug or open a pull request.
-- Put feature requests in [Ideas](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-- Build from source with the [development runbook](./docs/operations/00_development.md#first-checkout). The [architecture overview](./docs/internals/01_architecture.md) explains how it works.
-- Get help in [Discord](https://discord.gg/jn4EGJjrvv).
+# No telemetry endpoint, key or header in the built server (prints nothing)
+grep -rlE "ingest\.t3\.codes|phc_|X-Axiom-Dataset|google\.com/s2/favicons" apps/server/dist
+```
 
 ## License
 
-The source code in this repository is licensed under the [MIT License](./LICENSE).
+The source code is under the [MIT License](./LICENSE), as upstream's is. "T3 Code" and its logos are trademarks of T3 Tools, Inc.; see [TRADEMARK.md](./TRADEMARK.md). This project uses them only to say what it is a fork of.
 
-## Trademarks and forks
-
-The MIT license applies **only to the source code**. It does not grant any rights to T3 Tools, Inc.'s trademarks, branding, or trade dress, including the **T3 Code** name, wordmark, logos, and application icons.
-
-If you fork, redistribute, or build on T3 Code's source code:
-
-- **Use your own branding.** Replace the T3 Code name, wordmark, logos, and application icons in any public fork, redistributed build, website, package, or app store listing.
-- **Be explicitly clear that your project is unofficial.** Do not use the T3 Code name, wordmark, logo, or branding in your own projects without making it unmistakably clear that your project is unofficial and not affiliated with or endorsed by T3 Tools, Inc.
-
-Using our name, wordmark, logo, or branding in a way that suggests official status or affiliation is trademark infringement and unlawful. **Any project indicating or implying that it is an official version of T3 Code when it is not will be pursued to the full extent of the law.**
-
-See [TRADEMARK.md](./TRADEMARK.md) for the full trademark and branding policy.
+[base]: https://github.com/pingdotgg/t3code/tree/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40
+[compare]: https://github.com/pingdotgg/t3code/compare/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40...lorenjphillips:zdr3code:main
+[analytics-config]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/AnalyticsService.ts#L67-L74
+[analytics-post]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/AnalyticsService.ts#L231-L236
+[turn-props]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/ProviderUsageAnalytics.ts#L174-L205
+[identify-read]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/Identify.ts#L253-L271
+[identify-distinct]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/Identify.ts#L279-L295
+[identify-owners]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/Identify.ts#L307-L339
+[identify-always]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/server/src/telemetry/AnalyticsService.ts#L149
+[hash]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/packages/shared/src/telemetryId.ts#L8-L9
+[relay-exporter]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/packages/shared/src/relayTracing.ts#L159-L177
+[relay-release]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/.github/workflows/release.yml#L445-L463
+[doc-browser]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/docs/user/telemetry.md?plain=1#L82-L84
+[doc-mobile]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/docs/user/telemetry.md?plain=1#L96-L98
+[observe]: https://github.com/pingdotgg/t3code/blob/11c63a9f2ceadbe5f765478a3fc35d04c06e5a40/apps/mobile/src/features/observability/observe.ts
